@@ -5,7 +5,7 @@
 
 import sqlite3
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 
 DB_PATH = os.environ.get("LAB_BOOKING_DB", "/tmp/lab_booking.db")
