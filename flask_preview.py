@@ -1,17 +1,18 @@
 """
 系實驗室 / 閱覽室 借用系統
-含公開查詢、登入、申請、我的申請、管理者審核
+公開查詢 + 模擬登入 + 申請 + 我的申請 + 管理者審核 + 門禁名單
 """
 from flask import Flask, render_template_string, request, redirect, url_for, session
 from datetime import date, timedelta, datetime
+from functools import wraps
 import sys, os, uuid
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from utils.database import (
     init_db, get_slot_status, is_reading_room_open, is_holiday,
     create_booking, get_bookings_by_status, update_booking_status,
-    find_user_by_email, get_approved_for_access, export_access_list_text,
-    get_connection
+    export_access_list_text, get_connection
 )
 
 init_db()
@@ -25,11 +26,13 @@ SPACES = {
 }
 TIME_SLOTS = ["上午", "下午", "晚間"]
 
+
 def can_book_space(space_id, d):
     date_str = d.strftime("%Y-%m-%d")
     if space_id == "reading_room":
         return is_reading_room_open(date_str)
     return d.weekday() < 5 and not is_holiday(date_str)
+
 
 def status_text(s):
     return {
@@ -41,18 +44,21 @@ def status_text(s):
         "cancel_requested": "🟠 取消申請中",
     }.get(s, s)
 
+
 def current_user():
     return session.get("user")
 
+
 def login_required(f):
-    from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         if not current_user():
             return redirect(url_for("login"))
         return f(*args, **kwargs)
-        
-# ==================== 公開查詢頁 ====================
+    return decorated
+
+
+# ==================== 公開查詢 ====================
 PUBLIC_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -62,7 +68,7 @@ PUBLIC_TEMPLATE = """
   <title>系實驗室 / 閱覽室 借用查詢</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif; margin: 0; background: #f5f7fa; color: #222; }
-    .header { background: #1a365d; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+    .header { background: #1a365d; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
     .header h1 { margin: 0; font-size: 1.3rem; }
     .header a { color: #a0aec0; text-decoration: none; margin-left: 12px; font-size: 0.9rem; }
     .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
@@ -74,10 +80,8 @@ PUBLIC_TEMPLATE = """
     td:first-child, th:first-child { text-align: left; }
     .weekend { color: #2b6cb0; }
     .btn { display: inline-block; background: #2b6cb0; color: white; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: 600; border: none; cursor: pointer; }
-    .btn:hover { background: #2c5282; }
     .btn-outline { background: transparent; border: 1px solid #2b6cb0; color: #2b6cb0; }
     .info { background: #ebf8ff; border-left: 4px solid #3182ce; padding: 12px 16px; margin: 12px 0; border-radius: 0 8px 8px 0; }
-    .nav { margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -88,7 +92,7 @@ PUBLIC_TEMPLATE = """
     </div>
     <div>
       {% if user %}
-        <span style="margin-right:12px;">{{ user.name }}</span>
+        <span style="margin-right:8px;">{{ user.name }}</span>
         <a href="{{ url_for('my_bookings') }}">我的申請</a>
         <a href="{{ url_for('apply') }}">新增申請</a>
         {% if user.is_admin %}<a href="{{ url_for('admin') }}">管理者後台</a>{% endif %}
@@ -145,46 +149,6 @@ PUBLIC_TEMPLATE = """
 </html>
 """
 
-# ==================== 登入頁（目前為測試用模擬登入） ====================
-LOGIN_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>登入 - 借用系統</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif; margin: 0; background: #f5f7fa; }
-    .header { background: #1a365d; color: white; padding: 16px 24px; }
-    .container { max-width: 480px; margin: 40px auto; padding: 0 16px; }
-    .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-    input { width: 100%; padding: 10px; margin: 8px 0 16px; border: 1px solid #cbd5e0; border-radius: 8px; box-sizing: border-box; }
-    .btn { background: #2b6cb0; color: white; padding: 12px; border: none; border-radius: 8px; width: 100%; font-weight: 600; cursor: pointer; }
-    .btn:hover { background: #2c5282; }
-    .note { color: #718096; font-size: 0.9rem; margin-top: 16px; }
-    a { color: #2b6cb0; }
-  </style>
-</head>
-<body>
-  <div class="header"><h1 style="margin:0;font-size:1.3rem;">🔑 登入系統</h1></div>
-  <div class="container">
-    <div class="card">
-      <p>目前為<strong>測試用模擬登入</strong>。正式上線後會改為 Google 登入與電子郵件連結。</p>
-      <form method="post">
-        <label>姓名</label>
-        <input type="text" name="name" value="測試使用者" required>
-        <label>Email</label>
-        <input type="email" name="email" value="test@gs.ncku.edu.tw" required>
-        <label><input type="checkbox" name="is_admin" value="1"> 我是管理者（測試用）</label>
-        <br><br>
-        <button class="btn" type="submit">模擬登入</button>
-      </form>
-      <p class="note"><a href="{{ url_for('index') }}">← 返回公開查詢</a></p>
-    </div>
-  </div>
-</body>
-</html>
-"""
 
 @app.route("/")
 def index():
@@ -197,7 +161,7 @@ def index():
     for i in range(31):
         d = today + timedelta(days=i)
         date_str = d.strftime("%Y-%m-%d")
-        weekday = ["一","二","三","四","五","六","日"][d.weekday()]
+        weekday = ["一", "二", "三", "四", "五", "六", "日"][d.weekday()]
         label = f"{date_str}（{weekday}）"
         slots = []
         for slot in TIME_SLOTS:
@@ -208,10 +172,55 @@ def index():
                 slots.append(status_text(st))
         rows.append({"label": label, "weekend": d.weekday() >= 5, "slots": slots})
     return render_template_string(
-        PUBLIC_TEMPLATE, spaces=SPACES, space_id=space_id,
-        today=today.isoformat(), end_date=end.isoformat(), rows=rows,
+        PUBLIC_TEMPLATE,
+        spaces=SPACES,
+        space_id=space_id,
+        today=today.isoformat(),
+        end_date=end.isoformat(),
+        rows=rows,
         user=current_user()
     )
+
+
+# ==================== 登入（測試用模擬） ====================
+LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登入</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", sans-serif; margin: 0; background: #f5f7fa; }
+    .header { background: #1a365d; color: white; padding: 16px 24px; }
+    .container { max-width: 420px; margin: 40px auto; padding: 0 16px; }
+    .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    input[type=text], input[type=email] { width: 100%; padding: 10px; margin: 8px 0 16px; border: 1px solid #cbd5e0; border-radius: 8px; box-sizing: border-box; }
+    .btn { background: #2b6cb0; color: white; padding: 12px; border: none; border-radius: 8px; width: 100%; font-weight: 600; cursor: pointer; }
+    a { color: #2b6cb0; }
+  </style>
+</head>
+<body>
+  <div class="header"><h1 style="margin:0;font-size:1.3rem;">🔑 登入系統</h1></div>
+  <div class="container">
+    <div class="card">
+      <p>目前為<strong>測試用模擬登入</strong>。正式版會改為 Google 登入。</p>
+      <form method="post">
+        <label>姓名</label>
+        <input type="text" name="name" value="測試使用者" required>
+        <label>Email</label>
+        <input type="email" name="email" value="test@gs.ncku.edu.tw" required>
+        <label><input type="checkbox" name="is_admin" value="1"> 我是管理者（測試用）</label>
+        <br><br>
+        <button class="btn" type="submit">模擬登入</button>
+      </form>
+      <p style="margin-top:16px;"><a href="{{ url_for('index') }}">← 返回公開查詢</a></p>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -229,11 +238,13 @@ def login():
             return redirect(url_for("apply"))
     return render_template_string(LOGIN_TEMPLATE)
 
+
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("index"))
-    
+
+
 # ==================== 新增申請 ====================
 APPLY_TEMPLATE = """
 <!DOCTYPE html>
@@ -271,9 +282,8 @@ APPLY_TEMPLATE = """
             <option value="{{ sid }}">{{ sname }}</option>
           {% endfor %}
         </select>
-        <label>選擇日期 *（最早明天，最多選 7 天）</label>
+        <label>選擇日期 *（最早明天）</label>
         <input type="date" name="dates" min="{{ min_date }}" max="{{ max_date }}" required>
-        <p style="font-size:0.9rem;color:#718096;">目前一次先選一天，之後可再擴充多日選擇。</p>
         <label>時段 *（可多選）</label>
         <div class="slot-group">
           {% for slot in time_slots %}
@@ -287,7 +297,7 @@ APPLY_TEMPLATE = """
         <label>聯絡電話 *</label>
         <input type="text" name="phone" required placeholder="09xx-xxx-xxx">
         <label>其他使用者（人數 + 學號或姓名）</label>
-        <textarea name="other_users" placeholder="若需幫其他人開通門禁，請務必填寫學號或姓名"></textarea>
+        <textarea name="other_users" placeholder="若需幫其他人開通門禁，請務必填寫"></textarea>
         <button class="btn" type="submit">送出申請</button>
       </form>
     </div>
@@ -296,6 +306,7 @@ APPLY_TEMPLATE = """
 </body>
 </html>
 """
+
 
 @app.route("/apply", methods=["GET", "POST"])
 @login_required
@@ -342,10 +353,17 @@ def apply():
                     message, msg_type = "所選時段皆無法申請（可能已被占用）", "error"
 
     return render_template_string(
-        APPLY_TEMPLATE, user=user, spaces=SPACES, time_slots=TIME_SLOTS,
-        min_date=min_date, max_date=max_date, message=message, msg_type=msg_type
+        APPLY_TEMPLATE,
+        user=user,
+        spaces=SPACES,
+        time_slots=TIME_SLOTS,
+        min_date=min_date,
+        max_date=max_date,
+        message=message,
+        msg_type=msg_type
     )
-    
+
+
 # ==================== 我的申請 ====================
 MY_TEMPLATE = """
 <!DOCTYPE html>
@@ -377,13 +395,13 @@ MY_TEMPLATE = """
         用途：{{ b.purpose or '-' }}<br>
         {% if b.admin_note %}管理員備註：{{ b.admin_note }}<br>{% endif %}
         {% if b.status == 'pending' %}
-          <form method="post" style="display:inline;">
+          <form method="post" style="display:inline;margin-top:8px;">
             <input type="hidden" name="booking_id" value="{{ b.id }}">
             <input type="hidden" name="action" value="cancel">
             <button class="btn" type="submit">取消申請</button>
           </form>
         {% elif b.status == 'approved' %}
-          <form method="post" style="display:inline;">
+          <form method="post" style="display:inline;margin-top:8px;">
             <input type="hidden" name="booking_id" value="{{ b.id }}">
             <input type="hidden" name="action" value="request_cancel">
             <button class="btn" type="submit">申請取消借用</button>
@@ -397,6 +415,7 @@ MY_TEMPLATE = """
 </body>
 </html>
 """
+
 
 @app.route("/my-bookings", methods=["GET", "POST"])
 @login_required
@@ -419,8 +438,13 @@ def my_bookings():
     conn.close()
     bookings = [dict(r) for r in rows]
     return render_template_string(
-        MY_TEMPLATE, user=user, bookings=bookings, spaces=SPACES, status_text=status_text
+        MY_TEMPLATE,
+        user=user,
+        bookings=bookings,
+        spaces=SPACES,
+        status_text=status_text
     )
+
 
 # ==================== 管理者後台 ====================
 ADMIN_TEMPLATE = """
@@ -486,12 +510,14 @@ ADMIN_TEMPLATE = """
 </html>
 """
 
+
 @app.route("/admin", methods=["GET", "POST"])
 @login_required
 def admin():
     user = current_user()
     if not user.get("is_admin"):
         return "您沒有管理者權限", 403
+
     if request.method == "POST":
         bid = request.form.get("booking_id")
         action = request.form.get("action")
@@ -507,9 +533,13 @@ def admin():
     pending = get_bookings_by_status("pending")
     cancel_reqs = get_bookings_by_status("cancel_requested")
     return render_template_string(
-        ADMIN_TEMPLATE, user=user, pending=pending, cancel_reqs=cancel_reqs,
+        ADMIN_TEMPLATE,
+        user=user,
+        pending=pending,
+        cancel_reqs=cancel_reqs,
         spaces=SPACES
     )
+
 
 # ==================== 門禁開通名單 ====================
 ACCESS_TEMPLATE = """
@@ -545,10 +575,13 @@ ACCESS_TEMPLATE = """
 </html>
 """
 
+
 @app.route("/access-list")
 def access_list():
     text = export_access_list_text(30)
     return render_template_string(ACCESS_TEMPLATE, access_text=text)
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8502, debug=False)
+    port = int(os.environ.get("PORT", 8502))
+    app.run(host="0.0.0.0", port=port, debug=False)
